@@ -12,13 +12,12 @@ echo -e "nameserver 2a00:1098:2b::1\nnameserver 2606:4700:4700::1111" > /etc/res
 apt update -y && apt install -y curl wget jq
 
 # ==========================================
-# 2. 下载 WGCF 核心并自动注册 (核心亮点)
+# 2. 下载 WGCF 核心并自动注册 (防弹提取版)
 # ==========================================
 ARCH=$(uname -m)
 [ "$ARCH" == "x86_64" ] && ARCH_WGCF="amd64" || ARCH_WGCF="arm64"
 
 echo "📦 正在拉取 WGCF 核心工具..."
-# 使用 ghfast 镜像站防止 IPv6 无法下载
 wget -qO wgcf "https://ghfast.top/https://github.com/ViRb3/wgcf/releases/download/v2.2.22/wgcf_2.2.22_linux_${ARCH_WGCF}"
 chmod +x wgcf
 
@@ -28,22 +27,31 @@ echo "⏳ 正在向 Cloudflare 申请原生 WARP 账号 (可能需要十几秒).
 
 if [ ! -f "wgcf-profile.conf" ]; then
     echo "❌ 致命错误：WGCF 注册失败！"
-    echo "💡 原因：Cloudflare 拒绝了这台 HAX 机器的 IP 注册请求 (被判定为滥用或无法路由)。"
-    echo "🧹 正在清理残留..."
-    rm -f wgcf wgcf-account.toml
+    echo "💡 原因：Cloudflare 拒绝了这台 HAX 机器的 IP 注册请求。"
     exit 1
 fi
 
-echo "✅ 账号申请成功！正在提取私钥..."
-PK=$(grep -i "PrivateKey" wgcf-profile.conf | awk -F'=' '{print $2}' | tr -d ' ')
-V4=$(grep -i "Address" wgcf-profile.conf | grep "\." | awk -F'=' '{print $2}' | tr -d ' ')
-V6=$(grep -i "Address" wgcf-profile.conf | grep ":" | awk -F'=' '{print $2}' | tr -d ' ')
+echo "✅ 账号申请成功！正在执行防弹级私钥提取..."
+# 核心杀招：使用 tr -dc 强制只保留合法的字符，把隐形换行符 \r \n 统统物理超度
+PK=$(grep -i "PrivateKey" wgcf-profile.conf | awk -F'=' '{print $2}' | tr -dc 'A-Za-z0-9+/=')
+V4=$(grep -i "Address" wgcf-profile.conf | grep "\." | awk -F'=' '{print $2}' | tr -dc '0-9./')
+V6=$(grep -i "Address" wgcf-profile.conf | grep ":" | awk -F'=' '{print $2}' | tr -dc '0-9a-fA-F:/')
+
+# 检查提取是否成功
+if [ -z "$PK" ] || [ -z "$V4" ] || [ -z "$V6" ]; then
+    echo "❌ 提取失败：请检查 wgcf-profile.conf 文件内容！"
+    cat wgcf-profile.conf
+    exit 1
+fi
 
 # ==========================================
-# 3. 阅后即焚 (卸载清理 WGCF)
+# 3. 稳妥起见，暂时保留配置文件备份
 # ==========================================
-echo "🧹 提取完毕，执行阅后即焚，销毁 WGCF 及其生成的临时文件..."
-rm -f wgcf wgcf-account.toml wgcf-profile.conf
+echo "💾 提取完美成功！已将账号配置备份至 /etc/wireguard/wgcf-profile.conf"
+mkdir -p /etc/wireguard
+mv wgcf-profile.conf /etc/wireguard/
+# 只删掉占空间的程序本体
+rm -f wgcf wgcf-account.toml
 
 # ==========================================
 # 4. 自动安装依赖 (Sing-box & Cloudflared)

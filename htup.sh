@@ -5,20 +5,34 @@ echo "🚀 Sing-box 1.13.x + Argo + 原生 WARP (HTTPUpgrade版) 自动化部署
 echo "======================================================="
 
 # ==========================================
-# 1. 检查并提取 WARP 数据 (保留你的原生精髓)
+# 1. 智能查找并提取 WARP 数据
 # ==========================================
-WARP_CONF="/etc/wireguard/warp.conf"
-if [ ! -f "$WARP_CONF" ]; then
-    echo "❌ 致命错误：未发现 $WARP_CONF"
-    echo "💡 请先确保你已经安装了非全局版的双栈 WARP！"
+echo "🔍 正在全网搜寻 WARP 配置文件..."
+WARP_CONF=""
+
+# 遍历所有主流 WARP 脚本可能生成的配置路径
+for conf in /etc/wireguard/warp.conf /opt/warp-go/warp.conf /etc/wireguard/wgcf.conf /etc/wireguard/wg0.conf; do
+    if [ -f "$conf" ] && grep -q -i "PrivateKey" "$conf"; then
+        WARP_CONF="$conf"
+        echo "✅ 成功捕获配置文件: $WARP_CONF"
+        break
+    fi
+done
+
+if [ -z "$WARP_CONF" ]; then
+    echo "❌ 致命错误：在系统内未发现任何有效的 WARP 配置文件！"
+    echo "💡 请确认 fscarmen 菜单脚本是否已成功执行完毕并生成了非全局配置。"
+    # 如果真的找不到了，把当前目录下的 conf 列出来给排错提供线索
+    find /etc/wireguard /opt -name "*.conf" 2>/dev/null
     exit 1
 fi
 
-echo "✅ 正在提取 WARP 配置数据..."
-PK=$(grep "PrivateKey" $WARP_CONF | awk -F' = ' '{print $2}')
-V4=$(grep "Address" $WARP_CONF | grep "\." | awk -F' = ' '{print $2}')
-V6=$(grep "Address" $WARP_CONF | grep ":" | awk -F' = ' '{print $2}')
-RES_VAL=$(grep -i "Reserved" $WARP_CONF | awk -F'=' '{print $2}' | tr -d ' #[]')
+echo "✅ 正在提取 WARP 核心参数..."
+# 使用 tr 命令清洗空格，兼容不同脚本生成的各种鬼畜格式
+PK=$(grep -i "PrivateKey" "$WARP_CONF" | awk -F'=' '{print $2}' | tr -d ' ')
+V4=$(grep -i "Address" "$WARP_CONF" | grep "\." | awk -F'=' '{print $2}' | tr -d ' ')
+V6=$(grep -i "Address" "$WARP_CONF" | grep ":" | awk -F'=' '{print $2}' | tr -d ' ')
+RES_VAL=$(grep -i "Reserved" "$WARP_CONF" | awk -F'=' '{print $2}' | tr -d ' #[]')
 [ -z "$RES_VAL" ] && RES="[0,0,0]" || RES="[${RES_VAL}]"
 
 # ==========================================

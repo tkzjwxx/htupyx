@@ -1,21 +1,39 @@
 #!/bin/bash
 clear
 echo "======================================================="
-echo "🔥 完美升级：Sing-box 1.13.x + Argo + WARP (HTTPUpgrade版)"
+echo "🔥 完美闭环：Sing-box 1.13.x + Argo + WARP (最后大扫除版)"
 echo "======================================================="
 
 # ==========================================
-# 1. 物理提取你本地健康、合法的 WARP 数据
+# 1. 注入 NAT64 DNS 并安装官方客户端获取数据
 # ==========================================
+echo "🔧 正在注入救命 DNS 并安装官方 WARP 依赖..."
+echo -e "nameserver 2a00:1098:2b::1\nnameserver 2606:4700:4700::1111" > /etc/resolv.conf
+apt update -y && apt install -y curl wget jq gnupg2 -y
+
+# 安装官方 warp-cli (针对 Ubuntu/Debian 纯 v6 优化)
+if [ ! -f "/etc/wireguard/warp.conf" ]; then
+    echo "📦 正在拉取官方 WARP 客户端来生成合法数据..."
+    curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | tee /etc/apt/sources.list.p/cloudflare-client.list
+    apt update -y && apt install cloudflare-warp -y
+    
+    # 强制让官方客户端在纯 v6 环境下生成物理本地 wireguard 配置文件
+    echo "⏳ 正在让官方客户端生成合法指纹数据..."
+    warp-cli --accept-tos registration new >/dev/null 2>&1
+    warp-cli --accept-tos mode warp+tunnel >/dev/null 2>&1
+    # 触发生成本地配置文件
+    warp-cli --accept-tos generate-local-config /etc/wireguard/warp.conf >/dev/null 2>&1
+fi
+
 WARP_CONF="/etc/wireguard/warp.conf"
 if [ ! -f "$WARP_CONF" ]; then
-    echo "❌ 致命错误：未发现 $WARP_CONF"
-    echo "💡 请先确保你已经安装了非全局版的双栈 WARP！"
+    echo "❌ 错误：官方客户端未能在该 HAX IP 上成功生成配置。"
     exit 1
 fi
 
-echo "✅ 正在提取 WARP 配置数据..."
-# 严格保留老哥最稳妥的空格等号切割法
+echo "✅ 官方数据生成成功！正在执行无损数据提取..."
+# 严格保留空格等号切割法
 PK=$(grep "PrivateKey" $WARP_CONF | awk -F' = ' '{print $2}' | tr -d ' ')
 V4=$(grep "Address" $WARP_CONF | grep "\." | awk -F' = ' '{print $2}' | tr -d ' ')
 V6=$(grep "Address" $WARP_CONF | grep ":" | awk -F' = ' '{print $2}' | tr -d ' ')
@@ -23,7 +41,7 @@ RES_VAL=$(grep -i "Reserved" $WARP_CONF | awk -F'=' '{print $2}' | tr -d ' #[]')
 [ -z "$RES_VAL" ] && RES="[0,0,0]" || RES="[${RES_VAL}]"
 
 # ==========================================
-# 2. 自动安装依赖 (Sing-box & Cloudflared)
+# 2. 自动安装核心依赖 (Sing-box & Cloudflared)
 # ==========================================
 ARCH=$(uname -m)
 [ "$ARCH" == "x86_64" ] && ARCH_CF="amd64" || ARCH_CF="arm64"
@@ -133,7 +151,7 @@ cat <<EOF > /etc/sing-box/config.json
 EOF
 
 # ==========================================
-# 5. 配置系统服务进程 (解除 Argo 隧道底层死锁)
+# 5. 配置系统服务进程 (优化自适应升级传输)
 # ==========================================
 cat <<EOF > /lib/systemd/system/sing-box.service
 [Unit]
@@ -152,7 +170,6 @@ LimitNOFILE=Infinity
 WantedBy=multi-user.target
 EOF
 
-# 关键修正：移除 --protocol http2，让云端自适应协议升级包裹，走纯粹的 v6 边缘节点
 cat <<EOF > /etc/systemd/system/cloudflared.service
 [Unit]
 Description=cloudflared
@@ -168,65 +185,47 @@ WantedBy=multi-user.target
 EOF
 
 # ==========================================
-# 6. 生成全新 HTTPUpgrade 格式的查询脚本 (快捷键: j)
+# 6. 生成快捷查询脚本 (快捷键: j)
 # ==========================================
 cat <<EOF > /usr/local/bin/j
 #!/bin/bash
 echo -e "\n\033[1;36m=======================================================\033[0m"
 echo -e "\033[1;32m🎉 Sing-box + Argo 节点配置信息 (HTTPUpgrade 协议)\033[0m"
 echo -e "\033[1;36m=======================================================\033[0m"
-
 echo -e "\n\033[1;33m[1] v2rayN / NekoBox 快速导入链接:\033[0m"
 echo -e "\033[32mvless://${UUID}@${ARGO_DOMAIN}:443?type=httpupgrade&security=tls&path=%2Fwolovelangduo520&sni=${ARGO_DOMAIN}#Argo-HTTPUP-WARP\033[0m"
-
-echo -e "\n\033[1;33m[2] Clash v3 / Mihomo (yaml) 节点格式:\033[0m"
-echo -e "\033[37m  - name: \"Argo-HTTPUP-WARP\"
-    type: vless
-    server: ${ARGO_DOMAIN}
-    port: 443
-    uuid: ${UUID}
-    udp: true
-    tls: true
-    sni: ${ARGO_DOMAIN}
-    network: httpupgrade
-    httpupgrade-opts:
-      path: \"/wolovelangduo520\"\033[0m"
-
-echo -e "\n\033[1;33m[3] Sing-box (json) 客户端出站格式:\033[0m"
-echo -e "\033[37m  {
-    \"type\": \"vless\",
-    \"tag\": \"Argo-HTTPUP-WARP\",
-    \"server\": \"${ARGO_DOMAIN}\",
-    \"server_port\": 443,
-    \"uuid\": \"${UUID}\",
-    \"tls\": {
-      \"enabled\": true,
-      \"server_name\": \"${ARGO_DOMAIN}\",
-      \"insecure\": false
-    },
-    \"transport\": {
-      \"type\": \"httpupgrade\",
-      \"path\": \"/wolovelangduo520\"
-    }
-  }\033[0m"
 echo -e "\033[1;36m=======================================================\033[0m"
-echo -e "💡 \033[1;37m随时在终端输入 \033[1;31mj\033[1;37m 即可再次查看此信息。\033[0m\n"
 EOF
 chmod +x /usr/local/bin/j
 
 # ==========================================
-# 7. 启动服务并执行最终验收
+# 7. 启动核心服务
 # ==========================================
-echo "⚙️ 正在拉起后台服务..."
+echo "⚙️ 正在拉起核心后台服务..."
 systemctl daemon-reload
 systemctl enable --now sing-box cloudflared >/dev/null 2>&1
 systemctl restart sing-box cloudflared
 
-sleep 2
+sleep 3
 
+# ==========================================
+# 8. 终极过河拆桥：大扫除代码（就在这里执行！）
+# ==========================================
 if systemctl is-active --quiet sing-box; then
+    echo "🧹 [大扫除启动] 核心服务运行完美，现在执行过河拆桥，卸载官方残留..."
+    
+    # 停止并无情卸载官方客户端
+    systemctl stop warp-svc >/dev/null 2>&1
+    apt purge cloudflare-warp -y >/dev/null 2>&1
+    apt autoremove -y >/dev/null 2>&1
+    
+    # 抹去官方软件源和配置火种（但保留刚才生成的备份供Sing-box使用）
+    rm -f /etc/apt/sources.list.p/cloudflare-client.list
+    rm -rf /var/lib/cloudflare-warp
+    
+    echo "✨ 大扫除完毕！系统已恢复绝对纯净，只保留绿色轻量核心。"
     j
 else
-    echo "❌ 启动异常！核心图纸校验失败或端口被占用。"
+    echo "❌ 启动异常！核心图纸校验失败。"
     /usr/bin/sing-box run -c /etc/sing-box/config.json
 fi

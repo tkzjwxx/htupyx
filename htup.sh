@@ -14,24 +14,12 @@ if [ ! -f "$WARP_CONF" ]; then
     exit 1
 fi
 
-echo "✅ 正在提取 warp-go 配置数据..."
-# 抓取私钥和指纹 (加入 -m 1 防止多行注释或多 Peer 干扰，只取第一条)
-PK=$(grep -i -m 1 "PrivateKey" $WARP_CONF | sed 's/^[^=]*=//' | tr -dc 'A-Za-z0-9+/=')
-RES_VAL=$(grep -i -m 1 "Reserved" $WARP_CONF | sed 's/^[^=]*=//' | tr -dc '0-9,')
-
-# 抓取 IP 地址 (强行把可能存在的逗号替换成回车劈开，彻底杜绝 IPv4/v6 融合变异)
-RAW_ADDR=$(grep -i "Address" $WARP_CONF | sed 's/^[^=]*=//' | tr ',' '\n')
-V4=$(echo "$RAW_ADDR" | grep "\." | tr -dc '0-9./' | head -n 1)
-V6=$(echo "$RAW_ADDR" | grep ":" | tr -dc '0-9a-fA-F:/' | head -n 1)
-
-# 如果没抓到 Reserved，给个保底值防止 JSON 格式崩溃
+echo "✅ 正在提取 WARP 配置数据..."
+PK=$(grep "PrivateKey" $WARP_CONF | awk -F' = ' '{print $2}')
+V4=$(grep "Address" $WARP_CONF | grep "\." | awk -F' = ' '{print $2}')
+V6=$(grep "Address" $WARP_CONF | grep ":" | awk -F' = ' '{print $2}')
+RES_VAL=$(grep -i "Reserved" $WARP_CONF | awk -F'=' '{print $2}' | tr -d ' #[]')
 [ -z "$RES_VAL" ] && RES="[0,0,0]" || RES="[${RES_VAL}]"
-
-# 终极防呆校验：如果抓出来的私钥是空的，直接中止，绝不往下走冤枉路
-if [ -z "$PK" ]; then
-    echo "❌ 提取失败：配置文件中没有找到有效的 PrivateKey！"
-    exit 1
-fi
 
 # ==========================================
 # 2. 自动安装依赖 (Sing-box & Cloudflared)

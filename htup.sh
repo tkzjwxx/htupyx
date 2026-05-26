@@ -5,12 +5,12 @@ echo "🚀 Sing-box 1.13.x + Argo + WARP-GO (HTTPUpgrade 终极版)"
 echo "======================================================="
 
 # ==========================================
-# 1. 检查并提取 warp-go 数据 (终极防弹版)
+# 1. 检查并提取 WARP 数据
 # ==========================================
-WARP_CONF="/root/warpgo-proxy.conf"
+WARP_CONF="/etc/wireguard/warp.conf"
 if [ ! -f "$WARP_CONF" ]; then
     echo "❌ 致命错误：未发现 $WARP_CONF"
-    echo "💡 请先确保你已经运行了 warp-go 并成功生成了配置文件！"
+    echo "💡 请先确保你已经安装了非全局版的双栈 WARP！"
     exit 1
 fi
 
